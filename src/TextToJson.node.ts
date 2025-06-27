@@ -2,8 +2,9 @@ import {
   INodeType,
   INodeTypeDescription,
   INodeExecutionData,
+  IExecuteFunctions,
+  NodeConnectionType,
 } from 'n8n-workflow';
-import { IExecuteFunctions } from 'n8n-core';
 
 interface FieldDefinition {
   name: string;
@@ -32,8 +33,8 @@ export class TextToJson implements INodeType {
       name: 'Text to JSON',
       color: '#772244',
     },
-    inputs: ['main'],
-    outputs: ['main'],
+    inputs: [NodeConnectionType.Main],
+    outputs: [NodeConnectionType.Main],
     properties: [
       {
         displayName: 'File Content',
@@ -219,7 +220,6 @@ export class TextToJson implements INodeType {
         break; // stop after first matching record definition
       }
     }
-
-    return this.prepareOutputData([output]);
+    return this.prepareOutputData(output);
   }
 }
