@@ -89,7 +89,7 @@ export class TextToJson implements INodeType {
                 displayName: 'Fields',
                 name: 'fields',
                 type: 'fixedCollection',
-                typeOptions: { multipleValues: true },
+                typeOptions: { multipleValues: true, sortable:true },
                 default: {},
                 placeholder: 'Add Field',
                 options: [
@@ -151,7 +151,7 @@ export class TextToJson implements INodeType {
                 displayName: 'Child Definitions',
                 name: 'childDefinitions',
                 type: 'fixedCollection',
-                typeOptions: { multipleValues: true },
+                typeOptions: { multipleValues: true, sortable: true },
                 default: {},
                 placeholder: 'Add Child Block',
                 options: [
