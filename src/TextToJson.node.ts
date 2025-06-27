@@ -155,89 +155,90 @@ export class TextToJson implements INodeType {
   };
 
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-    // ⇓ sense genèrics i cast manual
-    const fileContent = this.getNodeParameter('fileContent', 0) as string;
-    let recordDefsRaw = this.getNodeParameter('recordDefs.record', 0) as any;
-    const aggregate = this.getNodeParameter('aggregateByRecordType', 0) as boolean;
+    const inputItems = this.getInputData();
+    const allOutput: INodeExecutionData[] = [];
 
-    // Si no és array, forcem array buit
-    if (!Array.isArray(recordDefsRaw)) {
-      recordDefsRaw = [];
-    }
-    if (recordDefsRaw.length === 0) {
-      throw new Error('You must configure at least one Record Definition');
-    }
+    for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
+      const fileContent = this.getNodeParameter('fileContent', itemIndex) as string;
+      let recordDefsRaw = this.getNodeParameter('recordDefs.record', itemIndex) as any;
+      const aggregate = this.getNodeParameter('aggregateByRecordType', itemIndex) as boolean;
 
-    // 1) Precompile record definitions
-    const recordDefs: RecordDefinition[] = recordDefsRaw.map((r: any) => {
-      let matcher: RegExp;
-      try {
-        matcher = new RegExp(r.matcher);
-      } catch {
-        matcher = new RegExp('^' + r.matcher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      if (!Array.isArray(recordDefsRaw) || recordDefsRaw.length === 0) {
+        throw new Error('You must configure at least one Record Definition');
       }
-      return {
-        recordType: r.recordType,
-        matcher,
-        delimiter: r.delimiter,
-        fields: r.fields.field.map((f: any) => ({
-          name: f.name,
-          type: f.type,
-          start: f.start,
-          length: f.length,
-          index: f.index,
-          regex: f.regex,
-        })),
-      };
-    });
 
-    // 2) Split lines, strip BOM, drop empty
-    const lines = fileContent
-      .replace(/^\uFEFF/, '')
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0);
-
-    // 3) Parse all lines into flat items
-    const items: INodeExecutionData[] = [];
-    for (const line of lines) {
-      for (const def of recordDefs) {
-        if (!def.matcher.test(line)) continue;
-        const json: any = {};
-        for (const field of def.fields) {
-          switch (field.type) {
-            case 'delimitedArray': {
-              const re = new RegExp(field.regex || '\\[(.*?)\\]', 'g');
-              json[field.name] = Array.from(line.matchAll(re), (m) => (m as RegExpMatchArray)[1].trim());
-              break;
-            }
-            case 'delimited': {
-              const parts = def.delimiter ? line.split(def.delimiter) : [line];
-              json[field.name] = parts[field.index!] ?.trim() || '';
-              break;
-            }
-            default: // fixed
-              json[field.name] = line.substr(field.start!, field.length!).trim();
-          }
+      // Precompile record definitions
+      const recordDefs: RecordDefinition[] = recordDefsRaw.map((r: any) => {
+        let matcher: RegExp;
+        try {
+          matcher = new RegExp(r.matcher);
+        } catch {
+          matcher = new RegExp('^' + r.matcher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
         }
-        json.__recordType = def.recordType;
-        items.push({ json });
-        break;
+        return {
+          recordType: r.recordType,
+          matcher,
+          delimiter: r.delimiter,
+          fields: r.fields.field.map((f: any) => ({
+            name: f.name,
+            type: f.type,
+            start: f.start,
+            length: f.length,
+            index: f.index,
+            regex: f.regex,
+          })),
+        };
+      });
+
+      // Split lines, strip BOM, drop empty
+      const lines = fileContent
+        .replace(/^\uFEFF/, '')
+        .split(/\r?\n/)
+        .filter((line) => line.trim().length > 0);
+
+      // Parse lines into items
+      const parsedItems: INodeExecutionData[] = [];
+      for (const line of lines) {
+        for (const def of recordDefs) {
+          if (!def.matcher.test(line)) continue;
+          const json: any = {};
+          for (const field of def.fields) {
+            switch (field.type) {
+              case 'delimitedArray': {
+                const re = new RegExp(field.regex || '\\[(.*?)\\]', 'g');
+                json[field.name] = Array.from(line.matchAll(re), (m) => (m as RegExpMatchArray)[1].trim());
+                break;
+              }
+              case 'delimited': {
+                const parts = def.delimiter ? line.split(def.delimiter) : [line];
+                json[field.name] = parts[field.index!] ?.trim() || '';
+                break;
+              }
+              default:
+                json[field.name] = line.substr(field.start!, field.length!).trim();
+            }
+          }
+          json.__recordType = def.recordType;
+          parsedItems.push({ json });
+          break;
+        }
+      }
+
+      if (aggregate) {
+        const aggregated: Record<string, any[]> = {};
+        for (const def of recordDefs) {
+          aggregated[def.recordType] = [];
+        }
+        for (const { json } of parsedItems) {
+          const { __recordType, ...rest } = json as any;
+          aggregated[__recordType].push(rest);
+        }
+        allOutput.push({ json: aggregated });
+      } else {
+        allOutput.push(...parsedItems);
       }
     }
 
-    // 4) Aggregate or return flat
-    if (aggregate) {
-      const aggregated: Record<string, any[]> = {};
-      for (const def of recordDefs) {
-        aggregated[def.recordType] = [];
-      }
-      for (const { json } of items) {
-        const { __recordType, ...rest } = json as any;
-        aggregated[__recordType].push(rest);
-      }
-      return this.prepareOutputData([{ json: aggregated }]);
-    }
-
-    return this.prepareOutputData(items);
+    return this.prepareOutputData(allOutput);
   }
 }
