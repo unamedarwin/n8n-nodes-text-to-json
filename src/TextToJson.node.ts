@@ -9,16 +9,16 @@ import {
 interface FieldDefinition {
   name: string;
   type: 'fixed' | 'delimited' | 'delimitedArray';
-  start?: number;    // for fixed-width
-  length?: number;   // for fixed-width
-  index?: number;    // for delimited
-  regex?: string;    // for delimitedArray
+  start?: number;
+  length?: number;
+  index?: number;
+  regex?: string;
 }
 
 interface RecordDefinition {
   recordType: string;
-  matcher: string;       // prefix or regex
-  delimiter?: string;    // if delimited fields are used
+  matcher: RegExp;
+  delimiter?: string;
   fields: FieldDefinition[];
 }
 
@@ -26,7 +26,7 @@ export class TextToJson implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Text to JSON',
     name: 'textToJson',
-    icon: 'file:icons/text-to-json.svg',
+    icon: 'file:./icons/text-to-json.svg',
     group: ['transform'],
     version: 1,
     description: 'Parse plain-text files into JSON according to dynamic schema',
@@ -61,17 +61,17 @@ export class TextToJson implements INodeType {
                 name: 'recordType',
                 type: 'string',
                 default: '',
-                description: 'An arbitrary label for this record type',
+                description: 'Label for this record type',
               },
               {
                 displayName: 'Matcher (prefix or regex)',
                 name: 'matcher',
                 type: 'string',
                 default: '',
-                description: 'Line prefix or regular expression to identify this record',
+                description: 'Line prefix or regular expression',
               },
               {
-                displayName: 'Delimiter (if delimited fields)',
+                displayName: 'Delimiter (if delimited)',
                 name: 'delimiter',
                 type: 'string',
                 default: ',',
@@ -94,7 +94,7 @@ export class TextToJson implements INodeType {
                         name: 'name',
                         type: 'string',
                         default: '',
-                        description: 'The JSON key for this field',
+                        description: 'JSON key for this field',
                       },
                       {
                         displayName: 'Type',
@@ -106,55 +106,34 @@ export class TextToJson implements INodeType {
                           { name: 'Delimited Array', value: 'delimitedArray' },
                         ],
                         default: 'fixed',
-                        description: 'How to extract this field',
                       },
                       {
                         displayName: 'Start Position',
                         name: 'start',
                         type: 'number',
                         default: 0,
-                        description: 'Zero-based index for fixed-width',
-                        displayOptions: {
-                          show: {
-                            type: ['fixed'],
-                          },
-                        },
+                        displayOptions: { show: { type: ['fixed'] } },
                       },
                       {
                         displayName: 'Length',
                         name: 'length',
                         type: 'number',
                         default: 0,
-                        description: 'Number of characters for fixed-width',
-                        displayOptions: {
-                          show: {
-                            type: ['fixed'],
-                          },
-                        },
+                        displayOptions: { show: { type: ['fixed'] } },
                       },
                       {
                         displayName: 'Delimiter Index',
                         name: 'index',
                         type: 'number',
                         default: 0,
-                        description: 'Column index for delimited fields',
-                        displayOptions: {
-                          show: {
-                            type: ['delimited'],
-                          },
-                        },
+                        displayOptions: { show: { type: ['delimited'] } },
                       },
                       {
                         displayName: 'Regex',
                         name: 'regex',
                         type: 'string',
                         default: '\\[(.*?)\\]',
-                        description: 'Regex to capture all occurrences (use with Delimited Array)',
-                        displayOptions: {
-                          show: {
-                            type: ['delimitedArray'],
-                          },
-                        },
+                        displayOptions: { show: { type: ['delimitedArray'] } },
                       },
                     ],
                   },
@@ -164,63 +143,101 @@ export class TextToJson implements INodeType {
           },
         ],
       },
+      {
+        displayName: 'Aggregate by Record Type',
+        name: 'aggregateByRecordType',
+        type: 'boolean',
+        default: false,
+        description:
+          'Group all parsed records into a single item with one array per recordType; otherwise output one item per line',
+      },
     ],
   };
 
   async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+    // ⇓ sense genèrics i cast manual
     const fileContent = this.getNodeParameter('fileContent', 0) as string;
-    const recordDefsRaw = this.getNodeParameter('recordDefs.record', 0) as Array<any>;
+    let recordDefsRaw = this.getNodeParameter('recordDefs.record', 0) as any;
+    const aggregate = this.getNodeParameter('aggregateByRecordType', 0) as boolean;
 
-    // Map raw definitions to typed ones
-    const recordDefs: RecordDefinition[] = recordDefsRaw.map((r: any) => ({
-      recordType: r.recordType,
-      matcher: r.matcher,
-      delimiter: r.delimiter,
-      fields: r.fields.field.map((f: any) => ({
-        name: f.name,
-        type: f.type,
-        start: f.start,
-        length: f.length,
-        index: f.index,
-        regex: f.regex,
-      })),
-    }));
+    // Si no és array, forcem array buit
+    if (!Array.isArray(recordDefsRaw)) {
+      recordDefsRaw = [];
+    }
+    if (recordDefsRaw.length === 0) {
+      throw new Error('You must configure at least one Record Definition');
+    }
 
-    const lines = fileContent.split(/\r?\n/).filter(l => l !== '');
-    const output: INodeExecutionData[] = [];
+    // 1) Precompile record definitions
+    const recordDefs: RecordDefinition[] = recordDefsRaw.map((r: any) => {
+      let matcher: RegExp;
+      try {
+        matcher = new RegExp(r.matcher);
+      } catch {
+        matcher = new RegExp('^' + r.matcher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      }
+      return {
+        recordType: r.recordType,
+        matcher,
+        delimiter: r.delimiter,
+        fields: r.fields.field.map((f: any) => ({
+          name: f.name,
+          type: f.type,
+          start: f.start,
+          length: f.length,
+          index: f.index,
+          regex: f.regex,
+        })),
+      };
+    });
 
+    // 2) Split lines, strip BOM, drop empty
+    const lines = fileContent
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+
+    // 3) Parse all lines into flat items
+    const items: INodeExecutionData[] = [];
     for (const line of lines) {
       for (const def of recordDefs) {
-        let isMatch = false;
-        try {
-          const regex = new RegExp(def.matcher);
-          isMatch = regex.test(line);
-        } catch {
-          // if invalid regex, fallback to startsWith
-          isMatch = line.startsWith(def.matcher);
-        }
-        if (!isMatch) continue;
-
-        const obj: any = { __recordType: def.recordType };
-        for (const f of def.fields) {
-          if (f.type === 'delimitedArray') {
-            const regex = new RegExp(f.regex!, 'g');
-            obj[f.name] = Array.from(line.matchAll(regex), m => m[1].trim());
-          } else if (f.type === 'delimited') {
-            const parts = def.delimiter
-              ? line.split(def.delimiter)
-              : [line];
-            obj[f.name] = parts[f.index!]?.trim() || '';
-          } else {
-            // fixed-width
-            obj[f.name] = line.substr(f.start!, f.length!).trim();
+        if (!def.matcher.test(line)) continue;
+        const json: any = {};
+        for (const field of def.fields) {
+          switch (field.type) {
+            case 'delimitedArray': {
+              const re = new RegExp(field.regex || '\\[(.*?)\\]', 'g');
+              json[field.name] = Array.from(line.matchAll(re), (m) => (m as RegExpMatchArray)[1].trim());
+              break;
+            }
+            case 'delimited': {
+              const parts = def.delimiter ? line.split(def.delimiter) : [line];
+              json[field.name] = parts[field.index!] ?.trim() || '';
+              break;
+            }
+            default: // fixed
+              json[field.name] = line.substr(field.start!, field.length!).trim();
           }
         }
-
-        output.push({ json: obj });
-        break; // stop after first matching record definition
+        json.__recordType = def.recordType;
+        items.push({ json });
+        break;
       }
     }
-    return this.prepareOutputData(output);
+
+    // 4) Aggregate or return flat
+    if (aggregate) {
+      const aggregated: Record<string, any[]> = {};
+      for (const def of recordDefs) {
+        aggregated[def.recordType] = [];
+      }
+      for (const { json } of items) {
+        const { __recordType, ...rest } = json as any;
+        aggregated[__recordType].push(rest);
+      }
+      return this.prepareOutputData([{ json: aggregated }]);
+    }
+
+    return this.prepareOutputData(items);
   }
 }

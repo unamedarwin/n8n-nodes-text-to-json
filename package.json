@@ -14,7 +14,7 @@
     ]
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -R icons dist/icons",
     "test": "jest",
     "lint": "eslint src --ext .ts"
   },
