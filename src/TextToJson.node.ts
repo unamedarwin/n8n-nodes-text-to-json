@@ -76,14 +76,14 @@ export class TextToJson implements INodeType {
                 name: 'matcher',
                 type: 'string',
                 default: '',
-                description: 'Line prefix or regular expression to identify this record',
+                description: 'Line prefix or regular expression',
               },
               {
                 displayName: 'Delimiter (if delimited)',
                 name: 'delimiter',
                 type: 'string',
-                default: ',',
-                description: 'Field separator for delimited fields',
+                default: '',
+                description: 'Field separator for delimited fields (empty = fixed-width)',
               },
               {
                 displayName: 'Fields',
@@ -212,7 +212,7 @@ export class TextToJson implements INodeType {
         throw new Error('You must configure at least one Record Definition');
       }
 
-      // Build typed definitions with compiled regex and child info
+      // Build typed definitions
       const recordDefs: RecordDefinition[] = recordDefsRaw.map((r: any) => {
         let matcher: RegExp;
         try {
@@ -220,6 +220,7 @@ export class TextToJson implements INodeType {
         } catch {
           matcher = new RegExp('^' + r.matcher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
         }
+
         const childDefs: ChildDefinition[] | undefined = Array.isArray(r.childDefinitions?.child)
           ? r.childDefinitions.child.map((c: any) => ({
               countField: c.countField,
@@ -227,6 +228,7 @@ export class TextToJson implements INodeType {
               childrenFieldName: c.childrenFieldName,
             }))
           : undefined;
+
         return {
           recordType: r.recordType,
           matcher,
@@ -248,7 +250,7 @@ export class TextToJson implements INodeType {
         recordDefs.map((d) => [d.recordType, d] as [string, RecordDefinition]),
       );
 
-      // Split into non-empty lines, strip BOM
+      // Split into lines, strip BOM, drop empty
       const lines = fileContent
         .replace(/^\uFEFF/, '')
         .split(/\r?\n/)
@@ -272,14 +274,12 @@ export class TextToJson implements INodeType {
         return obj;
       };
 
-      // Recursive parser for blocks with childDefinitions
+      // Recursive parser: only returns the parent with nested children
       const parseBlock = (
         startIdx: number,
         def: RecordDefinition
-      ): [INodeExecutionData[], number] => {
-        const items: INodeExecutionData[] = [];
+      ): [INodeExecutionData, number] => {
         const parentJson = parseLine(def, lines[startIdx]);
-        items.push({ json: parentJson });
         let idx = startIdx + 1;
 
         if (def.childDefinitions) {
@@ -289,22 +289,21 @@ export class TextToJson implements INodeType {
             const children: IDataObject[] = [];
 
             for (let i = 0; i < count && idx < lines.length; i++) {
-              const [childItems, nextIdx] = parseBlock(idx, childSchema);
-              childItems.forEach(ci => {
-                children.push(ci.json as IDataObject);
-                items.push(ci);
-              });
+              const [childItem, nextIdx] = parseBlock(idx, childSchema);
+              children.push(childItem.json as IDataObject);
               idx = nextIdx;
             }
+
             if (childDef.childrenFieldName) {
               parentJson[childDef.childrenFieldName] = children;
             }
           }
         }
-        return [items, idx];
+
+        return [{ json: parentJson }, idx];
       };
 
-      // Main loop: parse all lines via parseBlock
+      // Main loop: parse all top-level blocks
       const parsedItems: INodeExecutionData[] = [];
       let idx = 0;
       while (idx < lines.length) {
@@ -314,8 +313,8 @@ export class TextToJson implements INodeType {
           idx++;
           continue;
         }
-        const [blockItems, nextIdx] = parseBlock(idx, def);
-        parsedItems.push(...blockItems);
+        const [item, nextIdx] = parseBlock(idx, def);
+        parsedItems.push(item);
         idx = nextIdx;
       }
 
