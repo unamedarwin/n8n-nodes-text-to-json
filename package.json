@@ -4,6 +4,15 @@
   "description": "Node per convertir fitxers de text a JSON",
   "main": "dist/TextToJson.node.js",
   "types": "dist/TextToJson.node.d.ts",
+  "files": [
+    "dist",
+    "icons"
+  ],
+  "n8n": {
+    "nodes": [
+      "dist/TextToJson.node.js"
+    ]
+  },
   "scripts": {
     "build": "tsc",
     "test": "jest",
@@ -21,6 +30,6 @@
     "eslint": "^8.0.0",
     "@typescript-eslint/parser": "^5.0.0",
     "@typescript-eslint/eslint-plugin": "^5.0.0"
-  }
+  },
+  "license": "MIT"
 }
-
