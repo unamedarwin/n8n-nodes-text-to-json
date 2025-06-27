@@ -26,7 +26,7 @@ export class TextToJson implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Text to JSON',
     name: 'textToJson',
-    icon: 'icons/text-to-json.svg',
+    icon: 'file:icons/text-to-json.svg',
     group: ['transform'],
     version: 1,
     description: 'Parse plain-text files into JSON according to dynamic schema',
