@@ -56,7 +56,7 @@ export class TextToJson implements INodeType {
         displayName: 'Record Definitions',
         name: 'recordDefs',
         type: 'fixedCollection',
-        typeOptions: { multipleValues: true },
+        typeOptions: { multipleValues: true, sortable:true },
         default: {},
         placeholder: 'Add Record Type',
         options: [
