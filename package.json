@@ -1,16 +1,16 @@
 {
   "name": "n8n-nodes-text-to-json",
   "version": "1.0.0",
-  "description": "Node per convertir fitxers de text a JSON",
-  "main": "dist/TextToJson.node.js",
-  "types": "dist/TextToJson.node.d.ts",
+  "description": "Nodes to convert text files to JSON and vice versa",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
     "dist",
     "icons"
   ],
   "n8n": {
     "nodes": [
-      "dist/TextToJson.node.js"
+      "dist/index.js"
     ]
   },
   "scripts": {

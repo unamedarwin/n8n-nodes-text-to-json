@@ -1,29 +1,19 @@
-import {
-  INodeType,
-  INodeTypeDescription,
-  INodeExecutionData,
-  IExecuteFunctions,
-  NodeConnectionType,
-  IDataObject,
-} from 'n8n-workflow';
+// src/TextToJson.node.ts
+'use strict';
+
+import { INodeType, INodeTypeDescription, INodeExecutionData, NodeOperationError, NodeConnectionType, } from 'n8n-workflow';
 
 /**
  * Cast a raw string to the specified output type.
  */
-function castValue(
-  value: string,
-  type?: 'string' | 'number' | 'boolean' | 'date' | 'json',
-  format?: string,
-): any {
+function castValue(value: string, type: string, format?: string) {
   if (value == null) return value;
   switch (type) {
     case 'number':
-      // Remove leading zeros
       return Number(value.replace(/^0+(?!$)/, ''));
     case 'boolean':
       return ['true', '1', 'yes'].includes(value.toLowerCase());
     case 'date':
-      // Basic Date parsing; use a library for custom formats
       return new Date(value);
     case 'json':
       try {
@@ -34,31 +24,6 @@ function castValue(
     default:
       return value;
   }
-}
-
-interface FieldDefinition {
-  name: string;
-  type: 'fixed' | 'delimited' | 'delimitedArray';
-  start?: number;
-  length?: number;
-  index?: number;
-  regex?: string;
-  outputType?: 'string' | 'number' | 'boolean' | 'date' | 'json';
-  dateFormat?: string;
-}
-
-interface ChildDefinition {
-  countField: string;
-  childRecordType: string;
-  childrenFieldName?: string;
-}
-
-interface RecordDefinition {
-  recordType: string;
-  matcher: RegExp;
-  delimiter?: string;
-  fields: FieldDefinition[];
-  childDefinitions?: ChildDefinition[];
 }
 
 export class TextToJson implements INodeType {
@@ -115,7 +80,8 @@ export class TextToJson implements INodeType {
                 name: 'delimiter',
                 type: 'string',
                 default: '',
-                description: 'Separator for delimited fields (empty = fixed-width)',
+                description:
+                  'Separator for delimited fields (empty = fixed-width)',
               },
               {
                 displayName: 'Fields',
@@ -143,7 +109,10 @@ export class TextToJson implements INodeType {
                         options: [
                           { name: 'Fixed-width', value: 'fixed' },
                           { name: 'Delimited', value: 'delimited' },
-                          { name: 'Delimited Array', value: 'delimitedArray' },
+                          {
+                            name: 'Delimited Array',
+                            value: 'delimitedArray',
+                          },
                         ],
                         default: 'fixed',
                         description: 'How to extract this field',
@@ -178,7 +147,9 @@ export class TextToJson implements INodeType {
                         type: 'string',
                         default: '\\[(.*?)\\]',
                         description: 'Regex to capture all matches (for arrays)',
-                        displayOptions: { show: { type: ['delimitedArray'] } },
+                        displayOptions: {
+                          show: { type: ['delimitedArray'] },
+                        },
                       },
                       {
                         displayName: 'Output Type',
@@ -199,8 +170,11 @@ export class TextToJson implements INodeType {
                         name: 'dateFormat',
                         type: 'string',
                         default: 'yyyy-MM-dd',
-                        description: 'Format for parsing dates (if Output Type is Date)',
-                        displayOptions: { show: { outputType: ['date'] } },
+                        description:
+                          'Format for parsing dates (if Output Type is Date)',
+                        displayOptions: {
+                          show: { outputType: ['date'] },
+                        },
                       },
                     ],
                   },
@@ -223,21 +197,24 @@ export class TextToJson implements INodeType {
                         name: 'countField',
                         type: 'string',
                         default: '',
-                        description: 'Field name holding number of child lines',
+                        description:
+                          'Field name holding number of child lines',
                       },
                       {
                         displayName: 'Child Record Type',
                         name: 'childRecordType',
                         type: 'string',
                         default: '',
-                        description: 'Record type to apply to those child lines',
+                        description:
+                          'Record type to apply to those child lines',
                       },
                       {
                         displayName: 'Children Field Name',
                         name: 'childrenFieldName',
                         type: 'string',
                         default: '',
-                        description: '(Optional) JSON key under which to nest them',
+                        description:
+                          '(Optional) JSON key under which to nest them',
                       },
                     ],
                   },
@@ -258,35 +235,50 @@ export class TextToJson implements INodeType {
     ],
   };
 
-  async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+  async execute(this: any): Promise<INodeExecutionData[][]> {
     const inputItems = this.getInputData();
     const allOutput: INodeExecutionData[] = [];
 
     for (let itemIndex = 0; itemIndex < inputItems.length; itemIndex++) {
-      const fileContent = this.getNodeParameter('fileContent', itemIndex) as string;
-      let recordDefsRaw = this.getNodeParameter('recordDefs.record', itemIndex) as any;
-      const aggregate = this.getNodeParameter('aggregateByRecordType', itemIndex) as boolean;
+      const fileContent = this.getNodeParameter(
+        'fileContent',
+        itemIndex,
+      ) as string;
+      const recordDefsRaw = this.getNodeParameter(
+        'recordDefs.record',
+        itemIndex,
+      ) as Array<any>;
+      const aggregate = this.getNodeParameter(
+        'aggregateByRecordType',
+        itemIndex,
+      ) as boolean;
 
       if (!Array.isArray(recordDefsRaw) || recordDefsRaw.length === 0) {
-        throw new Error('You must configure at least one Record Definition');
+        throw new NodeOperationError(
+          this.getNode(),
+          'You must configure at least one Record Definition',
+          { itemIndex },
+        );
       }
 
       // Build typed RecordDefinition objects
-      const recordDefs: RecordDefinition[] = recordDefsRaw.map((r: any) => {
+      const recordDefs = recordDefsRaw.map((r) => {
         let matcher: RegExp;
         try {
           matcher = new RegExp(r.matcher);
         } catch {
-          matcher = new RegExp('^' + r.matcher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+          matcher = new RegExp(
+            '^' + r.matcher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+          );
         }
-        const childDefs: ChildDefinition[] | undefined = Array.isArray(r.childDefinitions?.child)
+        const childDefs = Array.isArray(r.childDefinitions?.child)
           ? r.childDefinitions.child.map((c: any) => ({
               countField: c.countField,
               childRecordType: c.childRecordType,
               childrenFieldName: c.childrenFieldName,
             }))
           : undefined;
-        const fields: FieldDefinition[] = r.fields.field.map((f: any) => ({
+        const fields = r.fields.field.map((f: any) => ({
           name: f.name,
           type: f.type,
           start: f.start,
@@ -304,64 +296,63 @@ export class TextToJson implements INodeType {
           childDefinitions: childDefs,
         };
       });
-
-      // Create a map for quick lookup
       const recordDefsMap = Object.fromEntries(
-        recordDefs.map((d) => [d.recordType, d] as [string, RecordDefinition]),
+        recordDefs.map((d) => [d.recordType, d]),
       );
 
-      // Split content into lines, strip BOM, drop empty
+      // Split content into lines
       const lines = fileContent
         .replace(/^\uFEFF/, '')
         .split(/\r?\n/)
         .filter((l) => l.trim().length > 0);
 
-      /**
-       * Parse a single line according to the definition.
-       */
-      const parseLine = (def: RecordDefinition, line: string): IDataObject => {
-        const obj: IDataObject = {};
+      const parseLine = (def: any, line: string) => {
+        const obj: any = {};
         for (const field of def.fields) {
-          let raw: string | string[];
+          let raw: any;
           if (field.type === 'delimitedArray') {
             const re = new RegExp(field.regex || '\\[(.*?)\\]', 'g');
-            raw = Array.from(line.matchAll(re), (m) => (m as RegExpMatchArray)[1].trim());
-            obj[field.name] = (raw as string[]).map((v) =>
+            raw = Array.from(line.matchAll(re), (m) => m[1].trim());
+            obj[field.name] = raw.map((v: string) =>
               castValue(v, field.outputType, field.dateFormat),
             );
           } else if (field.type === 'delimited') {
             const parts = def.delimiter ? line.split(def.delimiter) : [line];
-            raw = parts[field.index!] ?.trim() || '';
-            obj[field.name] = castValue(raw as string, field.outputType, field.dateFormat);
+            raw = parts[field.index]?.trim() || '';
+            obj[field.name] = castValue(
+              raw,
+              field.outputType,
+              field.dateFormat,
+            );
           } else {
-            raw = line.substr(field.start!, field.length!).trim();
-            obj[field.name] = castValue(raw, field.outputType, field.dateFormat);
+            raw = line.substr(field.start, field.length).trim();
+            obj[field.name] = castValue(
+              raw,
+              field.outputType,
+              field.dateFormat,
+            );
           }
         }
         obj.__recordType = def.recordType;
         return obj;
       };
 
-      /**
-       * Recursively parse a block with optional childDefinitions.
-       * Returns the parsed item and the next index to process.
-       */
       const parseBlock = (
         startIdx: number,
-        def: RecordDefinition,
-      ): [INodeExecutionData, number] => {
+        def: any,
+      ): [{ json: any }, number] => {
         const parentJson = parseLine(def, lines[startIdx]);
         let idx = startIdx + 1;
-
         if (def.childDefinitions) {
           for (const childDef of def.childDefinitions) {
-            const count = parseInt(parentJson[childDef.countField] as string, 10) || 0;
-            const childSchema = recordDefsMap[childDef.childRecordType];
-            const children: IDataObject[] = [];
-
+            const count =
+              parseInt(parentJson[childDef.countField], 10) || 0;
+            const childSchema =
+              recordDefsMap[childDef.childRecordType];
+            const children: any[] = [];
             for (let i = 0; i < count && idx < lines.length; i++) {
               const [childItem, nextIdx] = parseBlock(idx, childSchema);
-              children.push(childItem.json as IDataObject);
+              children.push(childItem.json);
               idx = nextIdx;
             }
             if (childDef.childrenFieldName) {
@@ -369,15 +360,15 @@ export class TextToJson implements INodeType {
             }
           }
         }
-
         return [{ json: parentJson }, idx];
       };
 
-      // Main parsing loop
-      const parsedItems: INodeExecutionData[] = [];
+      const parsedItems: { json: any }[] = [];
       let idx = 0;
       while (idx < lines.length) {
-        const def = recordDefs.find((d) => d.matcher.test(lines[idx]));
+        const def = recordDefs.find((d) =>
+          d.matcher.test(lines[idx]),
+        );
         if (!def) {
           idx++;
           continue;
@@ -387,23 +378,23 @@ export class TextToJson implements INodeType {
         idx = nextIdx;
       }
 
-      // Aggregate or emit one item per record
       if (aggregate) {
         const aggregated: Record<string, any[]> = {};
         for (const d of recordDefs) {
           aggregated[d.recordType] = [];
         }
         for (const { json } of parsedItems) {
-          const { __recordType, ...rest } = json as any;
+          const { __recordType, ...rest } = json;
           aggregated[__recordType].push(rest);
         }
         allOutput.push({ json: aggregated });
       } else {
-        allOutput.push(...parsedItems);
+        parsedItems.forEach((item) =>
+          allOutput.push({ json: item.json }),
+        );
       }
     }
 
-    // Return all processed items
     return this.prepareOutputData(allOutput);
   }
 }
